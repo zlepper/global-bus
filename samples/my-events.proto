@@ -1,0 +1,12 @@
+syntax = "proto3";
+
+import "lib/global-bus.proto";
+
+package global_bus;
+
+option go_package = "implementations/go/samples;main";
+
+message MyEvent {
+    option (event_path) = "dk.zlepper.events.myEvent";
+    string text = 1;
+}

@@ -1,0 +1,21 @@
+syntax = "proto3";
+
+option go_package = "github.com/zlepper/global-bus/implementations/go/pkg/global-bus;global_bus";
+import "google/protobuf/descriptor.proto";
+
+extend google.protobuf.MessageOptions {
+    string event_path = 58691;
+}
+
+// Used internally in the package for testing. DO NOT USE.
+message MyValidTestEvent {
+    option (event_path) = "testEvent";
+    string text = 1;
+}
+
+
+// Used internally in the package for testing. DO NOT USE.
+message MyInvalidTestEvent {
+    string text = 1;
+}
+
