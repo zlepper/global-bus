@@ -53,17 +53,17 @@ type betterLogger struct {
 }
 
 func (l betterLogger) Trace(format string, v ...interface{}) {
-	l.Log(Information, format, v)
+	l.Log(Trace, format, v...)
 }
 func (l betterLogger) Debug(format string, v ...interface{}) {
-	l.Log(Information, format, v)
+	l.Log(Debug, format, v...)
 }
 func (l betterLogger) Info(format string, v ...interface{}) {
-	l.Log(Information, format, v)
+	l.Log(Information, format, v...)
 }
 func (l betterLogger) Error(format string, v ...interface{}) {
-	l.Log(Information, format, v)
+	l.Log(Error, format, v...)
 }
 func (l betterLogger) Critical(format string, v ...interface{}) {
-	l.Log(Information, format, v)
+	l.Log(Critical, format, v...)
 }
