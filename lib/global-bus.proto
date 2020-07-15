@@ -19,3 +19,11 @@ message MyInvalidTestEvent {
     string text = 1;
 }
 
+// Describes the events that are send around
+message EventPackage {
+    // The event path of this event. Used for distinguishing between the actual event types
+    string eventPath = 1;
+    //  The actual event data, encoding as a protobuf structure
+    bytes eventData = 2;
+}
+

@@ -6,18 +6,6 @@ import (
 	"reflect"
 )
 
-type Context interface {
-	context.Context
-	Send(message proto.Message) error
-}
-
-type subscriptionCallbackFunc func(message interface{}, context Context) error
-
-type subscriptionCallback struct {
-	eventPath string
-	callback  subscriptionCallbackFunc
-}
-
 type globalBusBuilder struct {
 	// The transport configuration to use
 	transport TransportConfiguration
@@ -27,6 +15,13 @@ type globalBusBuilder struct {
 	removedSubscriptions []string
 	// The logger to use
 	logger betterLogger
+	// The system context for knowing when to shutdown the server
+	context context.Context
+}
+
+func (b *globalBusBuilder) WithContext(ctx context.Context) GlobalBusCompleteBuilder {
+	b.context = ctx
+	return b
 }
 
 func getEventPath(m proto.Message) string {
@@ -43,30 +38,22 @@ func (b *globalBusBuilder) Subscribe(callback interface{}) GlobalBusCompleteBuil
 		b.logger.Panic("Provided callback is not a function")
 	}
 
-	if actualCallbackType.NumIn() > 2 {
-		b.logger.Panic("Provided callback takes more than 2 arguments")
+	if actualCallbackType.NumIn() != 2 {
+		b.logger.Panic("Provided callback doesn't take exactly 2 arguments")
 	}
 
-	if actualCallbackType.NumIn() == 0 {
-		b.logger.Panic("Provided callback doesn't take any arguments")
+	if actualCallbackType.NumOut() != 1 {
+		b.logger.Panic("doesn't have exactly 1 return type")
 	}
 
-	if actualCallbackType.NumOut() > 1 {
-		b.logger.Panic("Provided callback has to many return values")
+	out := actualCallbackType.Out(0)
+	if out != reflect.TypeOf((*error)(nil)).Elem() {
+		b.logger.Panic("Provided callback has a return argument, but it is not of the 'error' type")
 	}
 
-	if actualCallbackType.NumOut() == 1 {
-		out := actualCallbackType.Out(0)
-		if out != reflect.TypeOf((*error)(nil)).Elem() {
-			b.logger.Panic("Provided callback has a return argument, but it is not of the 'error' type")
-		}
-	}
-
-	if actualCallbackType.NumIn() == 2 {
-		contextArg := actualCallbackType.In(1)
-		if contextArg != reflect.TypeOf((*Context)(nil)).Elem() {
-			b.logger.Panic("Second argument to provided callback is not of the type `global_bus.Context`")
-		}
+	contextArg := actualCallbackType.In(1)
+	if contextArg != reflect.TypeOf((*Context)(nil)).Elem() {
+		b.logger.Panic("Second argument to provided callback is not of the type `global_bus.Context`")
 	}
 
 	messageArg := actualCallbackType.In(0)
@@ -82,26 +69,14 @@ func (b *globalBusBuilder) Subscribe(callback interface{}) GlobalBusCompleteBuil
 		b.logger.Panic("First argument of callback doesn't provide an event_path option")
 	}
 
-	var callbackWrapper subscriptionCallbackFunc
 	var actualCallbackValue = reflect.ValueOf(callback)
 
-	if actualCallbackType.NumOut() == 1 {
-		if actualCallbackType.NumIn() == 2 {
-			callbackWrapper = contextArgumentWithErrorCallbackWrapper(actualCallbackValue)
-		} else {
-			callbackWrapper = singleArgumentWithErrorCallbackWrapper(actualCallbackValue)
-		}
-	} else {
-		if actualCallbackType.NumIn() == 2 {
-			callbackWrapper = contextArgumentNoErrorCallbackWrapper(actualCallbackValue)
-		} else {
-			callbackWrapper = singleArgumentNoErrorCallbackWrapper(actualCallbackValue)
-		}
-	}
+	callbackWrapper := contextArgumentWithErrorCallbackWrapper(actualCallbackValue)
 
 	cb := subscriptionCallback{
 		eventPath: eventPath,
 		callback:  callbackWrapper,
+		eventType: messageArg,
 	}
 
 	existing, exists := b.subscriptions[eventPath]
@@ -113,27 +88,6 @@ func (b *globalBusBuilder) Subscribe(callback interface{}) GlobalBusCompleteBuil
 	b.subscriptions[eventPath] = existing
 
 	return b
-}
-
-func singleArgumentNoErrorCallbackWrapper(callback reflect.Value) subscriptionCallbackFunc {
-	return func(message interface{}, context Context) error {
-		callback.Call([]reflect.Value{reflect.ValueOf(message)})
-		return nil
-	}
-}
-
-func singleArgumentWithErrorCallbackWrapper(callback reflect.Value) subscriptionCallbackFunc {
-	return func(message interface{}, context Context) error {
-		result := callback.Call([]reflect.Value{reflect.ValueOf(message)})
-		return result[0].Interface().(error)
-	}
-}
-
-func contextArgumentNoErrorCallbackWrapper(callback reflect.Value) subscriptionCallbackFunc {
-	return func(message interface{}, context Context) error {
-		callback.Call([]reflect.Value{reflect.ValueOf(message), reflect.ValueOf(context)})
-		return nil
-	}
 }
 
 func contextArgumentWithErrorCallbackWrapper(callback reflect.Value) subscriptionCallbackFunc {
@@ -155,8 +109,15 @@ func (b *globalBusBuilder) Unsubscribe(sample proto.Message) GlobalBusCompleteBu
 	return b
 }
 
-func (b *globalBusBuilder) Start() (GlobalBusInstance, error) {
-	panic("implement me")
+func (b *globalBusBuilder) Start() (*GlobalBusInstance, error) {
+	instance := GlobalBusInstance{}
+	err := instance.startGlobalBusInstance(b)
+	if err != nil {
+		return nil, err
+	}
+
+	return &instance, nil
+
 }
 
 func (b *globalBusBuilder) WithTransport(transport TransportConfiguration) GlobalBusCompleteBuilder {
@@ -190,12 +151,14 @@ type GlobalBusCompleteBuilder interface {
 	// they arrive.
 	Unsubscribe(sample proto.Message) GlobalBusCompleteBuilder
 
+	// Use the specified context instead for system operation.
+	// Pass in a cancelable context here to be able to stop the server.
+	WithContext(ctx context.Context) GlobalBusCompleteBuilder
+
 	// Actually starts Global Bus. An error is returned if the
 	// bus itself failed to start
-	Start() (GlobalBusInstance, error)
+	Start() (*GlobalBusInstance, error)
 }
-
-type GlobalBusInstance interface{}
 
 func CreateBuilder() GlobalBusBuilderTransportNext {
 	return &globalBusBuilder{

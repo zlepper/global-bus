@@ -25,67 +25,6 @@ func (c *TestContext) Send(message proto.Message) error {
 var ev = MyValidTestEvent{}
 var ctx Context = &TestContext{context.Background(), []proto.Message{}}
 
-func TestSubscribeCreatesCorrectFunction_SingleArgNoError(t *testing.T) {
-	builder := CreateBuilder().(*globalBusBuilder)
-
-	called := false
-
-	builder.WithTransport(nil).
-		Subscribe(func(event MyValidTestEvent) {
-			called = true
-		})
-
-	cb := builder.subscriptions[te][0]
-
-	assert.Equal(t, te, cb.eventPath)
-
-	err := cb.callback(ev, ctx)
-
-	assert.NoError(t, err)
-	assert.True(t, called)
-}
-
-func TestSubscribeCreatesCorrectFunction_SingleArgWithError(t *testing.T) {
-	builder := CreateBuilder().(*globalBusBuilder)
-
-	called := false
-
-	builder.WithTransport(nil).
-		Subscribe(func(event MyValidTestEvent) error {
-			called = true
-			return errors.New("test")
-		})
-
-	cb := builder.subscriptions[te][0]
-
-	assert.Equal(t, te, cb.eventPath)
-
-	err := cb.callback(ev, ctx)
-
-	assert.Error(t, err)
-	assert.True(t, called)
-}
-
-func TestSubscribeCreatesCorrectFunction_ContextArgNoError(t *testing.T) {
-	builder := CreateBuilder().(*globalBusBuilder)
-
-	called := false
-
-	builder.WithTransport(nil).
-		Subscribe(func(event MyValidTestEvent, context Context) {
-			called = true
-		})
-
-	cb := builder.subscriptions[te][0]
-
-	assert.Equal(t, te, cb.eventPath)
-
-	err := cb.callback(ev, ctx)
-
-	assert.NoError(t, err)
-	assert.True(t, called)
-}
-
 func TestSubscribeCreatesCorrectFunction_ContextArgWithError(t *testing.T) {
 	builder := CreateBuilder().(*globalBusBuilder)
 
@@ -120,42 +59,59 @@ func TestProducesProperErrors(t *testing.T) {
 		},
 		{
 			"Too many args",
-			"Provided callback takes more than 2 arguments",
-			func(ev MyValidTestEvent, context Context, something int) {},
+			"Provided callback doesn't take exactly 2 arguments",
+			func(ev MyValidTestEvent, context Context, something int) error {
+				return nil
+			},
 		},
 		{
-			"Too few args",
-			"Provided callback doesn't take any arguments",
-			func() {},
+			"Too few args 0",
+			"Provided callback doesn't take exactly 2 arguments",
+			func() error {
+				return nil
+			},
+		},
+		{
+			"Too few args 1",
+			"Provided callback doesn't take exactly 2 arguments",
+			func(ev MyValidTestEvent) error {
+				return nil
+			},
 		},
 		{
 			"Too many out",
-			"Provided callback has to many return values",
-			func(ev MyValidTestEvent) (int, error) {
+			"doesn't have exactly 1 return type",
+			func(ev MyValidTestEvent, context Context) (int, error) {
 				return 0, nil
 			},
 		},
 		{
 			"Out is not an error type",
 			"Provided callback has a return argument, but it is not of the 'error' type",
-			func(ev MyValidTestEvent) int {
+			func(ev MyValidTestEvent, context Context) int {
 				return 0
 			},
 		},
 		{
 			"Context argument is not a context",
 			"Second argument to provided callback is not of the type `global_bus.Context`",
-			func(ev MyValidTestEvent, s int) {},
+			func(ev MyValidTestEvent, s int) error {
+				return nil
+			},
 		},
 		{
 			"Event arg is not a proto event",
 			"First argument of callback is not a protobuf message",
-			func(s int) {},
+			func(s int, context Context) error {
+				return nil
+			},
 		},
 		{
 			"Provided protobuf message doesn't have event_path option",
 			"First argument of callback doesn't provide an event_path option",
-			func(ev MyInvalidTestEvent) {},
+			func(ev MyInvalidTestEvent, context Context) error {
+				return nil
+			},
 		},
 	}
 
@@ -173,8 +129,12 @@ func TestProducesProperErrors(t *testing.T) {
 func TestGlobalBusBuilder_Subscribe_ToSameEventTwice(t *testing.T) {
 	builder := CreateBuilder().(*globalBusBuilder)
 
-	builder.Subscribe(func(ev MyValidTestEvent) {})
-	builder.Subscribe(func(ev MyValidTestEvent) {})
+	builder.Subscribe(func(ev MyValidTestEvent, context Context) error {
+		return nil
+	})
+	builder.Subscribe(func(ev MyValidTestEvent, context Context) error {
+		return nil
+	})
 
 	subs := builder.subscriptions[te]
 
